@@ -29,7 +29,8 @@ if (( notary_set == 3 )); then
 fi
 
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+mnt=""
+trap '[[ -n "$mnt" ]] && hdiutil detach "$mnt" -force >/dev/null 2>&1; rm -rf "$tmp"' EXIT
 # The staging folder becomes the volume root, so it must be world-readable.
 staging="$tmp/staging"
 secrets="$tmp/secrets"
@@ -38,10 +39,51 @@ mkdir -m 700 "$secrets"
 
 cp -R "$app" "$staging/"
 ln -s /Applications "$staging/Applications"
+mkdir "$staging/.background"
+cp Resources/dmg-background.tiff "$staging/.background/background.tiff"
 rm -f "$dmg" "$dmg.sha256"
+
+# Finder addresses the volume by name, so a mounted "Byte Broom" (e.g. an older DMG) would get the layout instead.
+[[ ! -e "/Volumes/Byte Broom" ]] || fail "eject the mounted Byte Broom volume first"
+rw="$tmp/rw.dmg"
 # hdiutil occasionally fails with "Resource busy" on CI machines; retry once.
-hdiutil create -volname "Byte Broom" -srcfolder "$staging" -format UDZO -ov "$dmg" >/dev/null \
-  || { sleep 5; hdiutil create -volname "Byte Broom" -srcfolder "$staging" -format UDZO -ov "$dmg" >/dev/null; }
+create=(hdiutil create -volname "Byte Broom" -srcfolder "$staging" -fs HFS+ -layout NONE -format UDRW -ov "$rw")
+"${create[@]}" >/dev/null || { sleep 5; "${create[@]}" >/dev/null; }
+mnt=$(hdiutil attach "$rw" -readwrite -noverify -noautoopen | awk -F'\t' '/\/Volumes\//{print $NF}')
+[[ "$mnt" == "/Volumes/Byte Broom" ]] || fail "unexpected mount point: $mnt"
+
+# Icon centers must match Resources/make-dmg-background.swift. Bounds add ~28pt for the title bar.
+osascript <<'EOF'
+tell application "Finder"
+  tell disk "Byte Broom"
+    open
+    set current view of container window to icon view
+    set toolbar visible of container window to false
+    set statusbar visible of container window to false
+    set bounds of container window to {200, 120, 860, 548}
+    set opts to icon view options of container window
+    set arrangement of opts to not arranged
+    set icon size of opts to 128
+    set text size of opts to 13
+    set background picture of opts to file ".background:background.tiff"
+    set position of item "Byte Broom.app" of container window to {165, 180}
+    set position of item "Applications" of container window to {495, 180}
+    update without registering applications
+    delay 5
+    close
+  end tell
+end tell
+EOF
+sync
+rm -rf "$mnt/.fseventsd"
+hdiutil detach "$mnt" >/dev/null || { sleep 5; hdiutil detach "$mnt" -force >/dev/null; }
+mnt=""
+# Make Finder open the window on mount: finderInfo[2] (open folder) in the HFS+ volume header = root folder ID 2.
+# This is what `bless --openfolder` writes, but bless refuses on Apple silicon.
+[[ "$(xxd -s 1024 -l 2 -p "$rw")" == "482b" ]] || fail "expected an HFS+ volume header in $rw"
+printf '\x00\x00\x00\x02' | dd of="$rw" bs=1 seek=$((1024 + 80 + 8)) conv=notrunc 2>/dev/null
+[[ "$(xxd -s $((1024 + 80 + 8)) -l 4 -p "$rw")" == "00000002" ]] || fail "could not set the open-folder field"
+hdiutil convert "$rw" -format UDZO -o "$dmg" >/dev/null
 
 if [[ -n "${SIGN_IDENTITY:-}" ]]; then
   codesign --force --timestamp --sign "$SIGN_IDENTITY" "$dmg"

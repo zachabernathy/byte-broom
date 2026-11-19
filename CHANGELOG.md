@@ -4,6 +4,9 @@ All notable changes to Byte Broom are listed here. The format follows [Keep a Ch
 
 ## [Unreleased]
 
+### Changed
+- The DMG opens a styled window with Byte Broom and an Applications shortcut to drag it into.
+
 ## [1.0.0] - 2026-11-19
 
 ### Added
