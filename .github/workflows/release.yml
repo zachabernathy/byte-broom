@@ -1,0 +1,157 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    name: release
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Select newest Xcode
+        run: |
+          xcode="$(ls -d /Applications/Xcode_*.app | grep -E '/Xcode_[0-9.]+\.app$' | sort -V | tail -1)"
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
+          swift --version
+
+      - name: Check tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Bad tag $TAG"; exit 1; }
+          git merge-base --is-ancestor HEAD origin/main || { echo "$TAG is not on main"; exit 1; }
+          echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+
+      - name: Extract changelog section
+        run: scripts/release-notes.sh "$VERSION" > "$RUNNER_TEMP/changelog.md"
+
+      - name: Import signing certificate
+        env:
+          SIGN_IDENTITY: ${{ secrets.SIGN_IDENTITY }}
+          SIGN_CERT_P12: ${{ secrets.SIGN_CERT_P12 }}
+          SIGN_CERT_PASSWORD: ${{ secrets.SIGN_CERT_PASSWORD }}
+        run: |
+          set_count=0
+          for v in SIGN_IDENTITY SIGN_CERT_P12 SIGN_CERT_PASSWORD; do
+            if [[ -n "${!v}" ]]; then set_count=$((set_count + 1)); fi
+          done
+          if (( set_count == 0 )); then
+            echo "No signing secrets; the app will be signed ad hoc."
+            exit 0
+          fi
+          if (( set_count != 3 )); then
+            echo "Set all of SIGN_IDENTITY, SIGN_CERT_P12 and SIGN_CERT_PASSWORD, or none." >&2
+            exit 1
+          fi
+
+          umask 077
+          p12="$RUNNER_TEMP/signing.p12"
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(openssl rand -base64 24)"
+          echo "::add-mask::$keychain_password"
+
+          printf '%s' "$SIGN_CERT_P12" | base64 --decode > "$p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$p12" -k "$keychain" -f pkcs12 -P "$SIGN_CERT_PASSWORD" -T /usr/bin/codesign
+          rm -f "$p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user | xargs security list-keychains -d user -s "$keychain"
+          if ! security find-identity -v -p codesigning "$keychain" | grep -qF "$SIGN_IDENTITY"; then
+            echo "SIGN_IDENTITY was not found in the imported certificate." >&2
+            exit 1
+          fi
+
+      - name: Build app
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          SIGN_IDENTITY: ${{ secrets.SIGN_IDENTITY }}
+        run: scripts/build-app.sh
+
+      - name: Make DMG
+        env:
+          SIGN_IDENTITY: ${{ secrets.SIGN_IDENTITY }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
+          NOTARY_KEY: ${{ secrets.NOTARY_KEY }}
+        run: scripts/make-dmg.sh "$VERSION"
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: build/ByteBroom-*.dmg
+
+      - name: Publish release
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          dmg="ByteBroom-$VERSION.dmg"
+          notes="$RUNNER_TEMP/notes.md"
+          {
+            cat "$RUNNER_TEMP/changelog.md"
+            echo
+            echo "### Installing"
+            echo
+            echo "1. Download \`$dmg\` below."
+            echo "2. Open it and drag **Byte Broom** to **Applications**."
+            echo "3. Open Byte Broom from Applications."
+            echo
+            echo "Requires a Mac with Apple silicon and macOS 14 Sonoma or later."
+            echo
+            if ! xcrun stapler validate "build/$dmg" > /dev/null 2>&1; then
+              cat <<'EOF'
+          This build isn't notarized, so macOS may refuse to open it the first time. To allow it:
+
+          1. Close the message.
+          2. Open **System Settings > Privacy & Security**.
+          3. Scroll down and click **Open Anyway** next to the note about Byte Broom.
+          4. Confirm. macOS remembers your choice.
+
+          EOF
+            fi
+            echo "### Verify"
+            echo
+            echo "SHA-256 (\`$dmg.sha256\`):"
+            echo
+            echo '```'
+            cat "build/$dmg.sha256"
+            echo '```'
+            echo
+            echo '```bash'
+            echo "shasum -a 256 -c \"$dmg.sha256\""
+            echo "gh attestation verify \"$dmg\" --repo $GITHUB_REPOSITORY"
+            echo '```'
+          } > "$notes"
+
+          gh release create "$TAG" "build/$dmg" "build/$dmg.sha256" \
+            --title "Byte Broom $VERSION" \
+            --notes-file "$notes" \
+            --verify-tag
+
+      - name: Remove signing keychain
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/signing.p12"
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          if [[ -f "$keychain" ]]; then security delete-keychain "$keychain"; fi
