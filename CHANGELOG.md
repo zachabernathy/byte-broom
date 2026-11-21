@@ -4,6 +4,8 @@ All notable changes to Byte Broom are listed here. The format follows [Keep a Ch
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-20
+
 ### Added
 - A Universal DMG that runs on Intel Macs as well as Apple silicon.
 
@@ -20,5 +22,6 @@ All notable changes to Byte Broom are listed here. The format follows [Keep a Ch
 - Moves selected files to the Trash. Nothing is deleted permanently, and Put Back works.
 - About and Help windows, Check for Updates, and a link to support the project.
 
+[1.1.0]: https://github.com/zachabernathy/byte-broom/releases/tag/v1.1.0
 [1.0.1]: https://github.com/zachabernathy/byte-broom/releases/tag/v1.0.1
 [1.0.0]: https://github.com/zachabernathy/byte-broom/releases/tag/v1.0.0
