@@ -15,6 +15,7 @@ swift build                     # debug build
 swift test                      # run the unit tests
 scripts/build-app.sh            # tests, release build, and build/Byte Broom.app
 scripts/build-app.sh --install  # same, then copies the app to ~/Applications
+scripts/build-app.sh --universal  # same as build-app.sh, for Apple silicon and Intel
 ```
 
 The app has no dependencies beyond Apple's frameworks.
@@ -50,7 +51,7 @@ Never point `BYTE_BROOM_HOME` at a folder with files you care about.
    git push origin vX.Y.Z
    ```
 
-The Release workflow builds the app, makes `ByteBroom-X.Y.Z.dmg` and its checksum, attests the build, and publishes the GitHub release with the changelog section as notes.
+The Release workflow builds the app twice, makes `ByteBroom-X.Y.Z.dmg` (Apple silicon) and `ByteBroom-X.Y.Z-universal.dmg` (Apple silicon and Intel) with their checksums, attests the builds, and publishes the GitHub release with the changelog section as notes.
 
 Signing and notarization are optional. They run only when these repository secrets are set:
 

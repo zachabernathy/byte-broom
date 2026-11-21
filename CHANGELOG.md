@@ -4,6 +4,9 @@ All notable changes to Byte Broom are listed here. The format follows [Keep a Ch
 
 ## [Unreleased]
 
+### Added
+- A Universal DMG that runs on Intel Macs as well as Apple silicon.
+
 ## [1.0.1] - 2026-11-19
 
 ### Changed

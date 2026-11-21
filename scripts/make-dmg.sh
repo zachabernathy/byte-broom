@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Packages build/Byte Broom.app into build/ByteBroom-VERSION.dmg and writes a SHA-256 file.
+# Packages build/Byte Broom.app into build/ByteBroom-VERSION.dmg (Apple silicon) or
+# build/ByteBroom-VERSION-universal.dmg (Apple silicon and Intel) and writes a SHA-256 file.
 # Signs the DMG when SIGN_IDENTITY is set; notarizes when NOTARY_KEY_ID, NOTARY_ISSUER and NOTARY_KEY are set.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -8,9 +9,14 @@ fail() { echo "make-dmg.sh: $*" >&2; exit 1; }
 
 version="${1:?usage: make-dmg.sh VERSION}"
 app="build/Byte Broom.app"
-# No spaces: GitHub rewrites spaces in release asset names, which breaks shasum -c.
-dmg="build/ByteBroom-$version.dmg"
 [[ -d "$app" ]] || fail "missing $app; run scripts/build-app.sh first"
+case "$(lipo -archs "$app/Contents/MacOS/ByteBroom")" in
+  arm64) suffix="" ;;
+  "x86_64 arm64" | "arm64 x86_64") suffix="-universal" ;;
+  *) fail "unexpected architectures in $app" ;;
+esac
+# No spaces: GitHub rewrites spaces in release asset names, which breaks shasum -c.
+dmg="build/ByteBroom-$version$suffix.dmg"
 
 app_version=$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")
 [[ "$app_version" == "$version" ]] || fail "app version is $app_version, not $version; rebuild with VERSION=$version"

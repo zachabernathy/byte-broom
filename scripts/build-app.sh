@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
-# Builds "Byte Broom.app" in build/. Pass --install to copy it to ~/Applications.
+# Builds "Byte Broom.app" in build/ for Apple silicon. Pass --universal to also include Intel,
+# and --install to copy the app to ~/Applications.
 # Env: VERSION (e.g. 1.2.3), BUILD_NUMBER, SIGN_IDENTITY (Developer ID; ad hoc if unset).
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 install=false
-case "${1:-}" in
-  "") ;;
-  --install) install=true ;;
-  *) echo "usage: build-app.sh [--install]" >&2; exit 2 ;;
-esac
+arch=(--arch arm64)
+for opt in "$@"; do
+  case "$opt" in
+    --install) install=true ;;
+    --universal) arch=(--arch arm64 --arch x86_64) ;;
+    *) echo "usage: build-app.sh [--universal] [--install]" >&2; exit 2 ;;
+  esac
+done
 
 if [[ -z "${VERSION:-}" ]]; then
   last=$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)
@@ -18,8 +22,8 @@ fi
 BUILD_NUMBER="${BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || echo 0)}"
 
 swift test
-swift build -c release
-bin="$(swift build -c release --show-bin-path)/ByteBroom"
+swift build -c release "${arch[@]}"
+bin="$(swift build -c release "${arch[@]}" --show-bin-path)/ByteBroom"
 
 app="build/Byte Broom.app"
 rm -rf "$app"
@@ -36,7 +40,7 @@ else
   codesign --force --options runtime --sign - "$app"
 fi
 codesign --verify --strict "$app"
-echo "Built: $app ($VERSION, build $BUILD_NUMBER)"
+echo "Built: $app ($VERSION, build $BUILD_NUMBER, $(lipo -archs "$app/Contents/MacOS/ByteBroom"))"
 
 if $install; then
   dest="$HOME/Applications/Byte Broom.app"

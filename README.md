@@ -33,11 +33,13 @@
 
 ## Install
 
-1. Download `ByteBroom-x.y.z.dmg` from the [latest release](https://github.com/zachabernathy/byte-broom/releases/latest).
+1. Download one DMG from the [latest release](https://github.com/zachabernathy/byte-broom/releases/latest):
+   - `ByteBroom-x.y.z.dmg` for a Mac with Apple silicon.
+   - `ByteBroom-x.y.z-universal.dmg` for any Mac, including Intel.
 2. Open the DMG and drag **Byte Broom** to **Applications**.
 3. Open Byte Broom from Applications.
 
-**Requirements:** a Mac with Apple silicon, macOS 14 Sonoma or later.
+**Requirements:** macOS 14 Sonoma or later.
 
 ### Opening it the first time
 
@@ -68,7 +70,7 @@ Your Photos library shows a smaller size than the real one unless Byte Broom has
 
 ## Verify a download
 
-Each release includes a SHA-256 checksum and a build provenance attestation. Download `ByteBroom-x.y.z.dmg.sha256` next to the DMG, then:
+Each DMG has a SHA-256 checksum and a build provenance attestation. Download the `.sha256` file for your DMG (for example, `ByteBroom-x.y.z.dmg.sha256`) next to the DMG, then:
 
 ```bash
 shasum -a 256 -c "ByteBroom-x.y.z.dmg.sha256"
